@@ -6,37 +6,45 @@ Date: Saturday, May 16, 2015
 
 ##Loading and preprocessing the data
 
-```{r read_data, echo=TRUE}
+
+```r
 act <- read.csv("C:/Users/jdhuffaker/Documents/Coursera JHU Data Science Courses/05 Reproducible Research/Week 2/activity.csv",sep=",",header=TRUE)
 ```
 
 ##What is mean total number of steps taken per day?
 
-```{r req1_steps_per_day, echo=TRUE}
+
+```r
 # Calculate the total steps (sum) taken per day using ddply.
 library(plyr)
 actSum <- ddply(act, .(date), summarize, Total_Steps=sum(steps))
 ```
 
 ####Histogram of the Total Steps Taken per Day
-```{r histo, echo=TRUE}
+
+```r
 # Generate a histogram.
 hist(actSum$Total_Steps, xlab="Histogram of Total Steps Taken per Day", 
      main="Total Steps per Day",
      col="green")
+```
 
+![plot of chunk histo](figure/histo-1.png) 
+
+```r
 # Calculate the mean and median of the sum total steps per day,
 mn1 <- round(mean(actSum$Total_Steps, na.rm=T),1)
 md1 <- round(median(actSum$Total_Steps, na.rm=T),1)
 ```
 
-The mean of the total number of steps taken per day is `r mn1`.
+The mean of the total number of steps taken per day is 1.07662 &times; 10<sup>4</sup>.
 
-The median of the total number of steps taken per day is `r md1`.
+The median of the total number of steps taken per day is 1.0765 &times; 10<sup>4</sup>.
 
 
 ##What is the average daily activity pattern?
-```{r req2_avg_daily_act_pattern, echo=TRUE}
+
+```r
 # Make a subset of complete cases (where steps is not NA).
 comp <- complete.cases(act)
 actSub <- act[comp,][,1:3]
@@ -51,7 +59,11 @@ actMean <- ddply(actSub, .(interval), summarize, Average_Steps=mean(steps))
 plot(actMean$interval,actMean$Average_Steps,type="l",lwd=2,col="blue",
      xlab="5 Minute Time Intervals",
      ylab="Average Steps", main="Average Steps by 5 Minute Time Intervals (across Days)")
+```
 
+![plot of chunk req2_avg_daily_act_pattern](figure/req2_avg_daily_act_pattern-1.png) 
+
+```r
 # Determine the interval that had the maximum average and also the value of the average.
 maxavg <- max(actMean$Average_Steps)
 actMax <- subset(actMean,Average_Steps==maxavg)
@@ -59,14 +71,14 @@ MaxInt <- actMax$interval
 maxavg <- round(maxavg,1)
 ```
 
-The 5-minute interval that contains the maximum number of steps on average across all the days is `r MaxInt`.
+The 5-minute interval that contains the maximum number of steps on average across all the days is 835.
 
-The maximum number of steps on average across all the days is `r maxavg`.
+The maximum number of steps on average across all the days is 206.2.
 
 
 ###Imputing missing values
-```{r impute_missing, echo=TRUE}
 
+```r
 # Generate a table of incomplete cases (where steps is NA)
 comp <- !complete.cases(act)
 actmiss <- act[comp,]
@@ -109,7 +121,11 @@ actSum2 <- ddply(act2, .(date), summarize, Total_Steps=sum(steps))
 hist(actSum2$Total_Steps, xlab="Histogram of Total Steps Taken per Day (imputed values using the averges)", 
      main="Total Steps per Day",
      col="green")
+```
 
+![plot of chunk impute_missing](figure/impute_missing-1.png) 
+
+```r
 mn2 <- round(mean(actSum2$Total_Steps, na.rm=T),1)
 md2 <- round(median(actSum2$Total_Steps, na.rm=T),1)
 
@@ -119,23 +135,27 @@ actSum2md <- ddply(act2md, .(date), summarize, Total_Steps=sum(steps))
 hist(actSum2md$Total_Steps, xlab="Histogram of Total Steps Taken per Day (imputed values using the medians)", 
      main="Total Steps per Day",
      col="green")
+```
 
+![plot of chunk impute_missing](figure/impute_missing-2.png) 
+
+```r
 mn3 <- round(mean(actSum2md$Total_Steps, na.rm=T),1)
 md3 <- round(median(actSum2md$Total_Steps, na.rm=T),1)
 ```
 
-The mean of the total number of steps taken per day (includes imputed missing data using the interval mean) is `r mn2`.
+The mean of the total number of steps taken per day (includes imputed missing data using the interval mean) is 1.07662 &times; 10<sup>4</sup>.
 
-The median of the total number of steps taken per day (includes imputed missing data using the interval mean) is `r md2`.
+The median of the total number of steps taken per day (includes imputed missing data using the interval mean) is 1.07662 &times; 10<sup>4</sup>.
 
-The mean of the total number of steps taken per day (includes imputed missing data using the interval median) is `r mn3`.
+The mean of the total number of steps taken per day (includes imputed missing data using the interval median) is 9503.9.
 
-The median of the total number of steps taken per day (includes imputed missing data using the interval median) is `r md3`.
+The median of the total number of steps taken per day (includes imputed missing data using the interval median) is 1.0395 &times; 10<sup>4</sup>.
 
 
 ###Are there differences in activity patterns between weekdays and weekends?
-```{r activity, echo=TRUE}
 
+```r
 # Convert date column to a date class in another column and create a weekday column from the new data column.
 act2$date2 <- as.Date(act2$date, "%m/%d/%Y")
 act2$weekday <- weekdays(act2$date2)
@@ -167,5 +187,7 @@ xyplot(Step_Mean ~ interval|Day,
        ylab = "Average Number of Steps",
        layout=c(1,2))
 ```
+
+![plot of chunk activity](figure/activity-1.png) 
 
 ###END OF REPORT
