@@ -1,0 +1,235 @@
+# Population Health and Economic Effects From Storms Across the United States (1950 to 2011)
+
+##Synopsis
+This report summarizes which types of storm events were most harmful to population health and had the greatest economic impact across the United States for the years 1950 to 2011. The population health effects are measured by number fatalities and injuries. The economic impact is measured by property damage and crop damage. The storm event that had both the highest fatality and injury incidents was tornado. The storm event that had both the highest property and crop damage was flood. An estimate of the fatalities, injuries, property damage, and crop damage of the top 10 storm events is provided in the results section. More information about the NOAA storm data can be found at [Storm data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf).
+#### Author: jdhuffaker
+
+##Data Proccessing
+
+###DownLoad the Storm Data and Read it into R:
+```{r, echo=TRUE}
+# Author: jdhuffaker
+# Set the working directory
+setwd("C:/Users/jdhuffaker/Documents/Coursera JHU Data Science Courses/05 Reproducible Research/Week 3")
+
+# URL variable for NOAA Storm Data
+f_url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+
+# Download storm data and read it into R
+library(downloader)
+download(url=f_url,destfile="StormData.csv.bz2")
+# download.file(url=f_url, destfile='StormData.csv.bz2')
+sdata <- read.csv(bzfile('StormData.csv.bz2'), stringsAsFactors = FALSE)
+```
+
+###Information about the Data
+```{r, echo=TRUE}
+str(sdata) # Info about data classes, etc.
+head(sdata) # First 5 rows
+#tail(sdata) # Last 5 rows
+
+dimsd <- dim(sdata) # Data frame dimensions
+
+# summary statistics for each variable
+summary(sdata$FATALITIES) 
+summary(sdata$INJURIES)
+#summary(sdata$PROPDMG)
+#summary(sdata$CROPDMG)
+
+# Unique property and crop damage exponents for determing the cost estimates. Note that there are some data errors and/or missing data for estimating overall costs.
+upd <- unique(sdata$PROPDMGEXP)
+ucd <- unique(sdata$CROPDMGEXP)
+```
+
+Storm data frame dimensions: `r dimsd`.
+
+Unique exponents for property damage: `r upd`.
+
+Unique exponents for crop damage: `r ucd`.
+
+
+###Data Preparation for Final Results
+```{r, echo=TRUE}
+
+# Calculate actual property damage cost using designators K, M, and B in PROPDMGEXP.
+sdata$PropDmgCost[sdata$PROPDMGEXP == "K"] <- 1e3*sdata$PROPDMG[sdata$PROPDMGEXP == "K"]
+sdata$PropDmgCost[sdata$PROPDMGEXP == "k"] <- 1e3*sdata$PROPDMG[sdata$PROPDMGEXP == "k"]
+sdata$PropDmgCost[sdata$PROPDMGEXP == "M"] <- 1e6*sdata$PROPDMG[sdata$PROPDMGEXP == "M"]
+sdata$PropDmgCost[sdata$PROPDMGEXP == "m"] <- 1e3*sdata$PROPDMG[sdata$PROPDMGEXP == "m"]
+sdata$PropDmgCost[sdata$PROPDMGEXP == "B"] <- 1e6*sdata$PROPDMG[sdata$PROPDMGEXP == "B"]
+sdata$PropDmgCost[sdata$PROPDMGEXP == "b"] <- 1e3*sdata$PROPDMG[sdata$PROPDMGEXP == "b"]
+
+# Calculate actual crop damage cost using designators K, M, and B in CROPDMGEXP.
+sdata$CropDmgCost[sdata$CROPDMGEXP == "K"] <- 1e3*sdata$CROPDMG[sdata$CROPDMGEXP == "K"]
+sdata$CropDmgCost[sdata$CROPDMGEXP == "k"] <- 1e3*sdata$CROPDMG[sdata$CROPDMGEXP == "k"]
+sdata$CropDmgCost[sdata$CROPDMGEXP == "M"] <- 1e6*sdata$CROPDMG[sdata$CROPDMGEXP == "M"]
+sdata$CropDmgCost[sdata$CROPDMGEXP == "m"] <- 1e6*sdata$CROPDMG[sdata$CROPDMGEXP == "m"]
+sdata$CropDmgCost[sdata$CROPDMGEXP == "B"] <- 1e6*sdata$CROPDMG[sdata$CROPDMGEXP == "B"]
+sdata$CropDmgCost[sdata$CROPDMGEXP == "b"] <- 1e6*sdata$CROPDMG[sdata$CROPDMGEXP == "b"]
+
+# Generate summaries of property and crop damage costs (note the number of NAs).
+summary(sdata$PropDmgCost)
+summary(sdata$CropDmgCost)
+
+# Sum fatalities and injuries by types of event and by types of event and time zone.
+sdsum1 <- aggregate(cbind(FATALITIES, INJURIES) ~ EVTYPE, data = sdata, sum)
+
+# Sum property and crop damage costs by types of event and by types of event and time zone.
+sdsum3 <- aggregate(cbind(PropDmgCost, CropDmgCost) ~ EVTYPE, data = sdata, sum)
+
+# Sum of top 10 event types for fatalities with the sum of all other event types put into "Other" category.
+sdsum1a <- sdsum1[order(-sdsum1$FATALITIES),]
+sdsum1a$INJURIES <- NULL
+
+a <- nrow(sdsum1a)
+sdsum1a$EventType <- sdsum1a$EVTYPE
+sdsum1a$EventType[11:a] <- "Other"
+sdsum1a1 <- aggregate(FATALITIES ~ EventType, data = sdsum1a, sum)
+sdsum1a1 <- sdsum1a1[order(-sdsum1a1$FATALITIES),]
+Other_row <- which(grepl("Other",sdsum1a1$EventType))
+b <- nrow(sdsum1a1)
+sdsum1a1[b+1,] <- sdsum1a1[Other_row,] 
+sdsum1a1 <- sdsum1a1[-c(Other_row), ]  
+
+# Sum of top 10 event types for injuries with the sum of all other event types put into "Other" category.
+sdsum1b <- sdsum1[order(-sdsum1$INJURIES),]
+sdsum1b$FATALITIES <- NULL
+
+a <- nrow(sdsum1b)
+sdsum1b$EventType <- sdsum1b$EVTYPE
+sdsum1b$EventType[11:a] <- "Other"
+sdsum1b1 <- aggregate(INJURIES ~ EventType, data = sdsum1b, sum)
+sdsum1b1 <- sdsum1b1[order(-sdsum1b1$INJURIES),]
+Other_row <- which(grepl("Other",sdsum1b1$EventType))
+b <- nrow(sdsum1b1)
+sdsum1b1[b+1,] <- sdsum1b1[Other_row,] 
+sdsum1b1 <- sdsum1b1[-c(Other_row), ]  
+
+# Sum of top 10 event types for property damage with the sum of all other event types put into "Other" category.
+sdsum3a <- sdsum3[order(-sdsum3$PropDmgCost),]
+sdsum3a$CropDmgCost <- NULL
+
+c <- nrow(sdsum3a)
+sdsum3a$EventType <- sdsum3a$EVTYPE
+sdsum3a$EventType[11:c] <- "Other"
+sdsum3a1 <- aggregate(PropDmgCost ~ EventType, data = sdsum3a, sum)
+sdsum3a1 <- sdsum3a1[order(-sdsum3a1$PropDmgCost),]
+Other_row <- which(grepl("Other",sdsum3a1$EventType))
+d <- nrow(sdsum3a1)
+sdsum3a1[d+1,] <- sdsum3a1[Other_row,] 
+sdsum3a1 <- sdsum3a1[-c(Other_row), ]  
+
+# Sum of top 10 event types for crop damage wwith the sum of all other event types put into "Other" category.
+sdsum3b <- sdsum3[order(-sdsum3$CropDmgCost),]
+sdsum3b$PropDmgCost <- NULL
+
+c <- nrow(sdsum3b)
+sdsum3b$EventType <- sdsum3b$EVTYPE
+sdsum3b$EventType[11:c] <- "Other"
+sdsum3b1 <- aggregate(CropDmgCost ~ EventType, data = sdsum3b, sum)
+sdsum3b1 <- sdsum3b1[order(-sdsum3b1$CropDmgCost),]
+Other_row <- which(grepl("Other",sdsum3b1$EventType))
+d <- nrow(sdsum3b1)
+sdsum3b1[d+1,] <- sdsum3b1[Other_row,] 
+sdsum3b1 <- sdsum3b1[-c(Other_row), ]  
+
+```
+
+
+
+##Results:
+
+###Question 1: Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+
+Figure 1: Top 10 Storm Events for Fatalities and Injuries
+```{r, echo=TRUE}
+
+library(ggplot2)
+
+# Change EventType to a factor and set levels to keep order of EventType.
+sdsum1a1$EventType <- factor(sdsum1a1$EventType, levels=sdsum1a1$EventType)
+
+# Generate a bar chart (pareto chart) of the summarized fatalities data (top 10 and Other)
+gfat <- ggplot(sdsum1a1, aes(x = EventType, y = FATALITIES)) + geom_bar(stat = "identity", fill = "red") + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + xlab("Event Type") +  ylab("Frequency") + ggtitle("Number of Fatalities in the top 10 Event Types (w/ other event types grouped in Other)")
+
+#plot(gfat)
+
+# Change EventType to a factor and set levels to keep order of EventType.
+sdsum1b1$EventType <- factor(sdsum1b1$EventType, levels=sdsum1b1$EventType)
+
+# Generate a bar chart (pareto chart) of the summarized fatalities data (top 10 and Other)
+ginj <- ggplot(sdsum1b1, aes(x = EventType, y = INJURIES)) + geom_bar(stat = "identity", fill = "blue") + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + xlab("Event Type") +  ylab("Frequency") + ggtitle("Number of Injuries in the top 10 Event Types (w/ other event types grouped in Other)")
+
+#plot(ginj)
+
+
+# plot the two graphs in a grid
+library(gridBase)
+library(gridExtra)
+
+grid.arrange(gfat, ginj, ncol = 1)
+```
+
+
+Table 1a: Top 10 Storm Events for Number of Fatalities
+```{r, echo=TRUE}
+t1a <- grid.table(sdsum1a1)
+```
+
+Table 1b: Top 10 Storm Events for Number of Injuries 
+```{r, echo=TRUE}
+t1a <- grid.table(sdsum1a1)
+```
+
+
+###Question 2: Across the United States, which types of events have the greatest economic consequences?
+
+Figure 2: Top 10 Storm Events for Property and Crop Damage
+```{r, echo=TRUE}
+library(ggplot2)
+
+# Change EventType to a factor and set levels to keep order of EventType.
+sdsum3a1$EventType <- factor(sdsum3a1$EventType, levels=sdsum3a1$EventType)
+
+# Generate a bar chart (pareto chart) of the summarized property damage cost data (top 10 and Other)
+gprop <- ggplot(sdsum3a1, aes(x = EventType, y = PropDmgCost)) + geom_bar(stat = "identity", fill = "red", las=3) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + xlab("Event Type") +  ylab("Cost") + ggtitle("Property Damage cost of the top 10 Event Types (w/ other event types grouped in Other)")
+
+# Change EventType to a factor and set levels to keep order of EventType.
+sdsum3b1$EventType <- factor(sdsum3b1$EventType, levels=sdsum3b1$EventType)
+
+# Generate a bar chart (pareto chart) of the summarized crop damage cost data (top 10 and Other)
+gcrop <- ggplot(sdsum3b1, aes(x = EventType, y = CropDmgCost)) + geom_bar(stat = "identity", fill = "blue", las=3) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + xlab("Event Type") +  ylab("Cost") + ggtitle("Crop damage cost of the top 10 Event Types (w/ other event types grouped in Other)")
+
+# plot the two graphs in a grid
+library(gridBase)
+library(gridExtra)
+
+grid.arrange(gprop, gcrop, ncol = 1)
+```
+
+Table 2a: Top 10 Storm Events for Property Damage Costs
+```{r, echo=TRUE}
+grid.table(sdsum3a1)
+```
+
+Table 2b: Top 10 Storm Events for Crop Damage Costs
+```{r, echo=TRUE}
+grid.table(sdsum3b1)
+```
+
+
+##END OF REPORT
+
+
+
+```{r}
+#library(knitr)
+#setwd("C:/Users/jdhuffaker/Documents/Coursera JHU Data Science Courses/05 Reproducible Research/Week 3/")
+#knit2html("PA2_NOAA_Storm_Analysis_Final v2.Rmd")
+#knit2html("PA1_template.Rmd")
+#library(rmarkdown)
+#render("PA2_NOAA_Storm_Analysis_Final v2.Rmd") # you could also use "Untitled.md"
+
+#render("PA2_NOAA_Storm_Analysis_Final v2.Rmd", "pdf_document")
+
+```
