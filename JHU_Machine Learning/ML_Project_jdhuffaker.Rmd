@@ -1,0 +1,417 @@
+---
+title: "ML_Project_jdhuffaker"
+author: "jdhuffaker"
+date: "November 21, 2015"
+output: html_document
+---
+
+## Project Objective and Abstract
+
+The objective of this project is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise. They were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). This is the "classe" variable in the training set. Numerous predictor variables were measured at each accelerometer location. These variables are preprocessed and used to develop machine learning models to predict 20 different test cases. The methods for building the models are described along with the final model chosen based on estimated out of sample accuracy. 
+
+More information and data is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+
+## Load, Clean, and Prepare the Data
+
+```{r, echo=FALSE}
+
+# URL for train and test data:
+#trainurl = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+#testurl ="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+# Download the train and test data sets.
+#download.file(trainurl,"pml-training.csv")
+#download.file(testurl,"pml-testing.csv")
+
+# Read in the data sets. Set blank cells and #div/0 to NA.
+htrain0<-read.table("pml-training.csv",sep=",",header=TRUE,na.strings=c("NA","#DIV/0!",""))
+htest0<-read.table("pml-testing.csv",sep=",",header=TRUE,na.strings=c("NA","#DIV/0!",""))
+#head(htrain0)
+
+nc <- ncol(htrain0) #Number of columns in the train data set
+nr <- nrow(htrain0) #Number of rows in the train data set
+
+# Load required packages:
+library(caret)
+library(randomForest)
+library(rattle)
+library(combinat)
+library(MASS)
+library(pls)
+library(rpart)
+
+# Cean the train and test data sets
+
+# Convert cvtd_timestamp to epoch/POSIX time for both train and test data sets.
+htrain0$cvtd_timestamp_epoch<-as.numeric(strptime(htrain0[,5],"%d/%m/%Y %R"))
+htest0$cvtd_timestamp_epoch<-as.numeric(strptime(htest0[,5],"%d/%m/%Y %R"))
+#head(htrain0$cvtd_timestamp_epoch)
+#head(htest0$cvtd_timestamp_epoch)
+
+# Remove NA or columns with missing data in the train data set. Note that the statistics columns (kurtosis, skewness, averager, min, max, etc. explained in the document was for overlapping 2.5 second increments. These columns will be removed due to NAs.
+#ncol(htrain0) #Show number of cols of original data
+rmcols <- colnames(htrain0[, colSums(is.na(htrain0)) != 0]) # Get colnames of NA cols
+
+nrm1 <- length(rmcols) # Number of predictor variables removed.
+
+htrain1<-htrain0[,-which(names(htrain0) %in% rmcols)] # Remove the NA cols
+#ncol(htrain1)
+#head(htrain1)
+#str(htrain1)
+
+# Remove the same NA columns in the test data set that were removed in the train data set.
+htest1<-htest0[,-which(names(htest0) %in% rmcols)]
+#ncol(htest1)
+
+
+# Remove other columns not of interest in both the train and test data sets. This includes columns with the names of X, user_name, new_window (time window for the summary statistic columns that were removed), and the cvtd_timestamp (read in as a factor variable and converted to an new epoch time column in a previous step.
+rmcols2 <- c("X","user_name","new_window","cvtd_timestamp")
+htrain1<-htrain1[,-which(names(htrain1) %in% rmcols2)]
+htest1<-htest1[,-which(names(htest1) %in% rmcols2)]
+
+# Check for near zero variance values in the train data set.
+nzval <- nearZeroVar(htrain1,saveMetrics=TRUE)
+nzval2 <- subset(nzval, nzval$nzv=="TRUE")
+#ifelse(nrow(nzval2)==0, print("There are no near zero variance values to remove."), print(nzval2))
+# NOTE: After cleaning the train data previously, there are no near zero variance predictor variables.
+
+nctr1 <-  ncol(htrain1) #Number of columns in the htrain1 data set.
+ncte1 <- ncol(htest1) #Number of columns in the htest1 data set.
+```
+
+There are `r nc` original columns and `r nr` rows in the training data set.
+
+The following cleaning and transformations were done on the training and testing data sets:
+
+1. All NA columns were removed (this removed 5-6 empty columns and all the summary statistics columns) for a total of `r nrm1` columns removed. The column names removed are:
+
+`r rmcols`.
+
+2. Added one epoch time column to replace the cvtd_timestamp column since it read in as a factor column.
+
+3. Removed the columns "X", "user_name", "new_window", and "cvtd_timestamp". Removed "user_name" and "cvtd_timestap" because you probably wouldn't use these for future predictions of new participants at future dates. Column "X" is a row index. Column "new_window" was used to identify the optimal overlapping time span (2.5s as indicated in one of the reference reports) for the summary statistics.
+
+4. Checked for near zero variance predictor variables after the prevous cleansing and there were none to remove.
+
+The number of columns left in the training an testing data sets is `r nctr1`.
+
+```{r, echo=FALSE}
+# Find and remove predictors that result in absolute pairwise correlations greater then 0.90.
+rc <- which(colnames(htrain1)=="classe")
+htraincorr <- cor(htrain1[,-rc])
+highCorr <- findCorrelation(htraincorr, 0.90)
+hcn <- colnames(htraincorr[,c(highCorr)]) #get col names
+lhcn <- length(hcn)
+htrain1 <- htrain1[, -which(names(htrain1) %in% hcn)]
+#head(htrain1)
+nctr2 <- ncol(htrain1)
+
+
+# Remove high correlated variables in the test set.
+htest1 <- htest1[, -which(names(htest1) %in% hcn)]
+#head(htest1)
+```
+
+I then performed a pairwise correlation and removed predictor variables that had a correlation coefficient of 0.90 or higher with other predictor variables. There were `r lhcn` variables removed:
+`r hcn`
+
+The same variables were removed in the testing data set. The final remaining variables in the train data set is `r nctr2`. This includes the response variable classe.
+
+
+### Plotting the Features (Variables)
+Note that feature plots were created and reviewed but not added to this report. They took too much time to generate and difficult to display in the report. However, the R code is provided to generate them if desired.
+
+```{r, echo=FALSE}
+
+# Plot the variables.
+
+beltvar<-colnames(htrain1)[grep("belt",colnames(htrain1))]
+armsvar<-colnames(htrain1)[grep("_arm",colnames(htrain1))]
+forearmsvar <- colnames(htrain1)[grep("forearm",colnames(htrain1))]
+dumbbellvar<- colnames(htrain1)[grep("dumbbell",colnames(htrain1))]
+
+# Generate plots for each predictor variable vs. classe.
+# i=1
+# for(i in 1:(ncol(htrain1)-1)) {
+#     #plot(x=as.numeric(htrain1$classe), y=htrain1[,i], col=htrain1$classe, xlab=colnames(htrain1[,i]))
+#     p1 <- qplot(x=htrain1$classe, y=htrain1[,i], data=htrain1, fill=htrain1$classe, geom=c("boxplot","jitter"))
+#     p1
+# }
+
+# Generate feature plots by variable groups: belt, forearm, arm, and dumbbell
+# Feature plot of belt variables
+#featurePlot(x=htrain1[,beltvar],y=as.numeric(htrain1$classe),plot="pairs",col=htrain1$classe)
+# Feature plot of forearm
+# featurePlot(x=htrain1[,forearmsvar],y=as.numeric(htrain1$classe),plot="pairs",col=htrain1$classe)
+# Feature plot of arm variables
+# featurePlot(x=htrain1[,armsvar],y=as.numeric(htrain1$classe),plot="pairs",col=htrain1$classe)
+# Feature plot of dumbbell
+# featurePlot(x=htrain1[,dumbbellvar],y=as.numeric(htrain1$classe),plot="pairs",col=htrain1$classe)
+
+```
+
+
+## Machine Learning Algorithms/Models
+
+### Recursive Partitioning and Regression Trees (rpart) Model
+```{r, echo=FALSE}
+
+# Fit Machine Learning Algorithms:
+
+#Start with recursive partitioning 
+# "Trees can be indexed by their maximum depth and the classical CART methodology uses a cost-complexity parameter (Cp) to determine best tree depth." per Max Kuhn, Ph.D
+
+# Perform 3 repeats of 10–fold cross–validation with tuneLength=10 (sets of models).
+set.seed(33833)
+cvCtrl1 <- trainControl(method = "repeatedcv", repeats = 3)
+rpartFit1 <- train(classe ~ .,method="rpart",data=htrain1, tuneLength=10, trControl = cvCtrl1 )
+#rpartFit1
+
+# Perform 5 repeats of 10–fold cross–validation with tuneLength=30 (sets of models).
+set.seed(33833)
+cvCtrl2 <- trainControl(method = "repeatedcv", repeats = 5)
+rpartFit2 <- train(classe ~ .,method="rpart",data=htrain1, tuneLength=30, trControl = cvCtrl2 )
+#rpartFit2
+
+# Perform 10 repeats of 10–fold cross–validation with tuneLength=50 (sets of models).
+set.seed(33833)
+cvCtrl3 <- trainControl(method = "repeatedcv", repeats = 10)
+rpartFit3 <- train(classe ~ .,method="rpart",data=htrain1, tuneLength=50, trControl = cvCtrl3 )
+#rpartFit3
+
+# Predict the testing data set using the three rpart models
+predrpart1 <- predict(rpartFit1,htest1)
+predrpart2 <- predict(rpartFit2,htest1)
+predrpart3 <- predict(rpartFit3,htest1)
+
+# Combine the rpart predicted values into one table.
+rpartResults <- cbind(predrpart1, predrpart2, predrpart3)
+#dim(rpartResults)
+
+# Convert the predicted values in numbers to the classe letters.
+for(i in 1:ncol(rpartResults)) {
+    for(j in 1:nrow(rpartResults)) {
+        if(rpartResults[j,i]==1) {
+            rpartResults[j,i]="A"
+        } else {
+        if(rpartResults[j,i]==2) {
+            rpartResults[j,i]="B"
+        } else {
+        if(rpartResults[j,i]==3) {
+            rpartResults[j,i]="c"
+        } else {
+        if(rpartResults[j,i]==4) {
+            rpartResults[j,i]="D"
+        } else {
+        if(rpartResults[j,i]==5) {
+            rpartResults[j,i]="E"
+        }}}}}
+    }
+}   
+
+# Show the predicted results of the rpart models
+# rpartResults
+
+# Note: Accuracy for 3 repeats of 10-fold cv and tuneLength=10, cp=0.0189, accuracy=0.684, Kappa=0.599
+# Note: Accuracy for 5 repeats of 10-fold cv and tuneLength=30, cp=0.0050, accuracy=0.892, Kappa=0.863
+# Note: Accuracy for 10 repeats of 10-fold cv and tuneLength=50, cp=0.0015, accuracy=0.953, Kappa=0.940
+
+
+# The final rpart model:
+frpartm <- rpartFit3$finalModel
+
+# The final rpart tree:
+#fancyRpartPlot(rpartFit3$finalModel)
+
+# Plot the accuracy vs. complexity parameter (cp) for the third rpart model.
+#plot(rpartFit3, scales = list(x = list(log = 10)))
+
+#str(rpartFit3)
+
+```
+
+I first tried the recursive partitioning and regression trees (rpart) package for classifying the classe response. I used the 10-fold cross validation method and changed the number of cross validation (cv) repeats and tuning length. Below are the results for three cv repeats and tuning length combinations. The third one had the best accuracy of 95.3%.
+
+1. Accuracy for 3 repeats of 10-fold cv and tuneLength=10, cp=0.0189, accuracy=0.684, Kappa=0.599
+2. Accuracy for 5 repeats of 10-fold cv and tuneLength=30, cp=0.0050, accuracy=0.892, Kappa=0.863
+3. Accuracy for 10 repeats of 10-fold cv and tuneLength=50, cp=0.0015, accuracy=0.953, Kappa=0.940
+
+The model results of the third rpart model is given below:
+```{r, echo=FALSE}
+rpartFit3
+```
+
+The predicted values of the 20 test cases for the third rpart model are:
+```{r, echo=FALSE}
+predrpart3
+```
+
+
+Note that I generated a fancy rplot model showing the tree structure, but it is too busy to show in this report. See my R code to generate the plot if desired.
+
+### Partial Least Squares (PLS) Model
+```{r, echo=FALSE}
+# Tried but low accuracy (should use plsda)
+set.seed(33833)
+ctrl <- trainControl(method = "repeatedcv", repeats = 5, classProbs = FALSE)
+plsFit <- train(classe ~ ., data = htrain1, method = "pls", tuneLength = 15, trControl = ctrl,
+                preProc = c("center", "scale"))
+#plsFit
+#str(plsFit)
+#plsFit$varImp
+
+plspred <- predict(plsFit, newdata=htest1)
+#plspred
+
+```
+
+Next I fit a PLS model using 5 repeats of 10-fold cross validation resampling and a tune length of 15. The accuracy was only 61.8% which is worse than the accuracies of the three rpart models. Note that I should have used the partial least squares discriminant analysis model (plsda) but didn't have time. Therefore, I'm assuming that the PLS method in the caret train fuction converted the classe categorical values to numeric values for the modeling. I also tried 10 repeats of 10-fold cross validation resampling and got the same accuracy.
+
+The predicted values of the 20 test cases for the PLS model are:
+`r plspred`.
+
+### Linear Discriminant Analysis (LDA) Model
+```{r, echo=FALSE}
+# Linear discriminant analysis yields accuracy=0.69 using either boostrap (25 reps) or k=10-fold cv repeated 5 or 10 times.
+set.seed(33833)
+ctrl <- trainControl(method = "repeatedcv", repeats = 10, classProbs = FALSE)
+ldaFit = train(classe ~ .,data=htrain1,method="lda", trControl=ctrl )
+
+ldapred <- predict(ldaFit, newdata = htest1)
+
+```
+
+Next I fit the LDA model using 10 repeats of 10-fold cross validation resampling. The accuracy was 69.0% which is still less than two of the rpart models. 
+
+
+The predicted values of the 20 test cases for the PLS model are:
+`r ldapred`.
+
+### Random Forest (RF) Model
+```{r, echo=FALSE}
+# Note the following code and output from method="rf" using the train fuction. I ran this on a beefed up desktop, but it won't run on my laptop (runs out of memory - dam it!). So, I used the randomForest fuction below instead of the TRAIN function. Note that I didn't specify the type of cross validation so it used the default, resampling/bootstrapping w/ 25 reps. Accuracy was 0.992 which beat my rpart models above.
+# set.seed(33833)
+# modFit1 <- train(classe~ .,data=htrain2,method="rf", prox=T, importance=T, do.trace=T, ntree=5)
+# modFit1
+# OUTPUT:
+# Random Forest 
+# 
+# 19622 samples
+#    48 predictor
+#     5 classes: 'A', 'B', 'C', 'D', 'E' 
+# 
+# No pre-processing
+# Resampling: Bootstrapped (25 reps) 
+# Summary of sample sizes: 19622, 19622, 19622, 19622, 19622, 19622, ... 
+# Resampling results across tuning parameters:
+# 
+#   mtry  Accuracy   Kappa      Accuracy SD  Kappa SD   
+#    2    0.9750938  0.9684914  0.003610833  0.004583672
+#   25    0.9959993  0.9949397  0.001089095  0.001378196
+#   48    0.9924062  0.9903940  0.003364719  0.004258178
+# 
+# Accuracy was used to select the optimal model using  the largest value.
+# The final value used for the model was mtry = 25. 
+# 
+# pred1 <- predict(modFit1,htest2)
+# pred1
+# 
+# B A B A A E D B A A B C B A E E A B B B
+
+# Try randomForest (supposed to be one of the best methods to use for minimizing both bias and variance compared to rpart).
+#Find the optimal numbers of variables to try splitting on at each node.
+
+bestmtry<-tuneRF(subset(htrain1,select=-c(classe)),htrain1$classe,ntreeTry=500,stepFactor=1.5,improve=.01,trace=TRUE,plot=FALSE,dobest=FALSE)
+
+bmt <- bestmtry
+
+# Lowest OOBError is mtry=6 with ntreeTry=100.
+# Lowest OOBError is mtry=13 with ntreeTry=500.
+# The out-of-bag (oob) error estimate
+# In random forests, there is no need for cross-validation or a separate test set to get an unbiased estimate of the test set error. It is estimated internally, during the run. Each tree is constructed using a different bootstrap sample from the original data. About one-third of the cases are left out of the bootstrap sample and not used in the construction of the kth tree.
+
+# Run the random forest model.
+set.seed(33833)
+rffit<-randomForest(classe~.,data=htrain1,ntree=500, mtry=13, importance=TRUE,trace=TRUE)
+#Note: With mtry=6, tried ntree=10, 50, 100, 200, and 500 and OOB error rate was 1.5%, 0.1%, 0.07%, 0.06%, and 0.05%, respectively. However, the run time increased also for each increase in ntree value. With mtry=13 and ntree=500, OOB error rate is 0.04% (takes a lot longer to run).
+
+# The predicted values of the 20 test cases are: B A B A A E D B A A B C B A E E A B B B.
+```
+
+
+The final model I tried is the random forest model. Note that I tried running it using the caret train function, but it only ran on my 32GB RAM desktop and took at least 1 hour to finish. Therefore, I used the randomForest fuction which was much faster. 
+
+I used the tuneRF function to find the optimal mtry setting using ntreeTry set to 500. The optimal mtry was 13 with the minimum out-of-bag (OOB) error as shown below:
+
+`r bmt`
+
+Note that the optimal mtry value changes if ntreeTry is set to different values. For example, when I set ntreeTry to 100 the optimal mtry was 6. With mtry=6, I tried ntree=10, 50, 100, 200, and 500 and OOB error rate was 1.5%, 0.1%, 0.07%, 0.06%, and 0.05%, respectively. However, the run time increased also for each incremental increase in ntree value. With mtry=13 and ntree=500, OOB error rate is 0.04% but takes a lot longer to run.
+
+The random forest modeling results including variable importance are as follows;
+```{r, echo=FALSE}
+# Display the random forest model results
+rffit
+
+#rffit$importance # Print the importance variable results
+
+varImpPlot(rffit) # Plot of the important variables
+
+predrf <- predict(rffit,htest1)
+
+#confusionMatrix(data=plspred, reference=predrf)
+# The predicted values of the 20 test cases are: B A B A A E D B A A B C B A E E A B B B.
+```
+
+The random forest had the highest accuracy of 99.96% (assuming that accuracy is 100% - OOB error rate). This generated the best results out of all the models. The predicted values of the 20 test cases for the PLS model are:
+`r predrf`.
+
+### Combined Predicted Results of the 20 Test Use Cases for all Models
+The combined predicted values of the 20 test use cases for all models is given in the table below. The results of the random forest predicted values were used as the answers in course project submission assignment since that model gave the highest accuracy. All of them were the correct predicted values.
+
+```{r, echo=FALSE}
+# Combine the rpart predicted values into one table.
+FinalResults <- data.frame(cbind(plspred, ldapred, predrpart1, predrpart2, predrpart3, predrf))
+
+colnames(FinalResults) <- c("PLS Acc=61.8%", "LDA Acc=69.0%", "RPart_1 Acc=68.4%", "RPart_2 Acc=86.3%", "RPart_3 Acc=95.3%", "RandomForest Acc=99.96%")
+
+#dim(rpartResults)
+
+# Convert the predicted values in numbers to the classe letters.
+for(i in 1:ncol(FinalResults)) {
+    for(j in 1:nrow(FinalResults)) {
+        if(FinalResults[j,i]==1) {
+            FinalResults[j,i]="A"
+        } else {
+        if(FinalResults[j,i]==2) {
+            FinalResults[j,i]="B"
+        } else {
+        if(FinalResults[j,i]==3) {
+            FinalResults[j,i]="c"
+        } else {
+        if(FinalResults[j,i]==4) {
+            FinalResults[j,i]="D"
+        } else {
+        if(FinalResults[j,i]==5) {
+            FinalResults[j,i]="E"
+        }}}}}
+    }
+}   
+
+FinalResults
+
+```
+
+
+## Conclusion and Recommendations
+Overall, there are many models and tuning variations of those models that can be used to predict the classe response variable. From this exercise, random forest proved to be the best modeling method. Below is a list of modeling methods that could also be tried given more time:
+
+1. Boosted trees (gbm)
+2. Discriminant Analysis PLS (plsda)
+3. Regularized discriminant Analysis (rda)
+4. Etc.
+
+It may also be worthwhile to try principle components (PCA) preprocessing on the predictor variables first.
+
+### References
+1. Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
